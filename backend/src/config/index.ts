@@ -20,6 +20,10 @@ const config = {
     "video/webm",
     "video/x-matroska",
   ] as const,
+  huggingFaceToken: process.env.HUGGINGFACE_API_TOKEN || "",
+  nsfwModel: "Falconsai/nsfw_image_detection",
+  maxAnalysisFrames: parseInt(process.env.MAX_ANALYSIS_FRAMES || "10", 10),
+  frameIntervalSeconds: parseInt(process.env.FRAME_INTERVAL_SECONDS || "5", 10),
   corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
   roles: {
     VIEWER: "viewer",

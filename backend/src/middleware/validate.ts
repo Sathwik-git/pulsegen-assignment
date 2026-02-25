@@ -1,13 +1,13 @@
 import { Request, Response, NextFunction } from "express";
-import { ZodSchema, ZodError } from "zod";
+import { ZodType } from "zod";
 
 export const validate =
-  (schema: ZodSchema, source: "body" | "query" | "params" = "body") =>
+  (schema: ZodType, source: "body" | "query" | "params" = "body") =>
   (req: Request, res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req[source]);
-    
+
     if (!result.success) {
-      const errors = result.error.errors.map((err) => ({
+      const errors = result.error.issues.map((err) => ({
         field: err.path.join("."),
         message: err.message,
       }));

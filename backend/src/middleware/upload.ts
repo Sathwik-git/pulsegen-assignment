@@ -4,21 +4,21 @@ import { v4 as uuidv4 } from "uuid";
 import { Request, Response, NextFunction } from "express";
 import config from "../config";
 
-// Storage configuration
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     const uploadPath = path.join(__dirname, "../../", config.uploadDir);
     cb(null, uploadPath);
   },
   filename: (_req, file, cb) => {
-    // Generate unique filename preserving extension
+   
     const ext = path.extname(file.originalname).toLowerCase();
     const uniqueName = `${uuidv4()}${ext}`;
     cb(null, uniqueName);
   },
 });
 
-// File filter to validate video types
+
 const fileFilter = (
   _req: Express.Request,
   file: Express.Multer.File,
@@ -46,9 +46,7 @@ const upload = multer({
   },
 });
 
-/**
- * Upload middleware with error handling.
- */
+
 const videoUpload = (req: Request, res: Response, next: NextFunction): void => {
   const uploadSingle = upload.single("video");
 

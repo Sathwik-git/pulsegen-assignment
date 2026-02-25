@@ -1,6 +1,3 @@
-/**
- * Video Routes
- */
 import { Router, Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import {
@@ -19,10 +16,7 @@ import { JwtPayload } from "../types";
 
 const router = Router();
 
-/**
- * Stream auth middleware — accepts JWT via query param (for <video> element)
- * or the standard Authorization header.
- */
+
 const streamAuth = async (
   req: Request,
   res: Response,
@@ -49,28 +43,28 @@ const streamAuth = async (
   auth(req, res, next);
 };
 
-// GET /api/videos/:id/stream - Stream video (supports token via query param)
+
 router.get("/:id/stream", streamAuth, streamVideo);
 
-// All other routes require standard authentication
+
 router.use(auth);
 
-// GET /api/videos - List videos (all authenticated users)
+
 router.get("/", allRoles, listVideos);
 
-// POST /api/videos/upload - Upload video (editor & admin)
+
 router.post("/upload", editorAndAbove, videoUpload, uploadVideo);
 
-// GET /api/videos/:id - Video details
+
 router.get("/:id", allRoles, getVideo);
 
-// PUT /api/videos/:id - Update metadata (editor & admin)
+
 router.put("/:id", editorAndAbove, updateVideo);
 
-// DELETE /api/videos/:id - Delete video (editor & admin)
+
 router.delete("/:id", editorAndAbove, deleteVideo);
 
-// POST /api/videos/:id/reprocess - Reprocess video (editor & admin)
+
 router.post("/:id/reprocess", editorAndAbove, reprocessVideo);
 
 export default router;

@@ -2,6 +2,8 @@ import app from "./app";
 import http from "http";
 import { Server } from "socket.io";
 import config from "./config";
+import { initSocket } from "./socket";
+import connectDB from "./config/db";
 
 const server = http.createServer(app);
 
@@ -18,7 +20,7 @@ initSocket(io);
 
 export async function StartServer() {
   await connectDB();
-  server.listen(config.PORT, () => {
+  server.listen(config.port, () => {
     console.log(`server running on port ${config.port}`);
   });
 }

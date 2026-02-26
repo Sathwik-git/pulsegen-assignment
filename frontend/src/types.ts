@@ -8,7 +8,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
-  organisation?: string;
+  organisation?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -23,10 +23,8 @@ export type SensitivityClassification = "safe" | "flagged" | "unprocessed";
 export type Visibility = "private" | "organisation" | "public";
 
 export interface SensitivityDetails {
-  violence: number;
   adult: number;
   language: number;
-  drug: number;
 }
 
 export interface Video {
@@ -90,7 +88,6 @@ export interface UserListParams {
   page?: number;
 }
 
-
 export interface VideoProgressEvent {
   videoId: string;
   progress: number;
@@ -109,6 +106,5 @@ export interface VideoErrorEvent {
   videoId: string;
   error: string;
 }
-
 
 export type UploadProgressHandler = (progressEvent: AxiosProgressEvent) => void;

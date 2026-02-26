@@ -35,11 +35,11 @@ const streamAuth = async (
         next();
         return;
       }
-    } catch {
-      // Fallback to standard auth below
+    } catch(e) {
+      console.log(e)
     }
   }
-  // Fallback to standard auth
+  
   auth(req, res, next);
 };
 

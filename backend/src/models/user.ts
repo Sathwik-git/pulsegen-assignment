@@ -29,12 +29,12 @@ const userSchema = new Schema<IUser>(
     role: {
       type: String,
       enum: Object.values(config.roles),
-      default: config.roles.EDITOR,
+      default: config.roles.VIEWER,
     },
     organisation: {
       type: String,
       trim: true,
-      default: "default",
+      default: null,
     },
     isActive: {
       type: Boolean,

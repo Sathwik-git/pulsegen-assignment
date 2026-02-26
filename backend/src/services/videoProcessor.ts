@@ -12,10 +12,13 @@ import { IVideo } from "../types";
 const hf = new InferenceClient(config.huggingFaceToken);
 
 interface SensitivityScores {
-  violence: number;
   adult: number;
   language: number;
-  drug: number;
+}
+
+/** Per-frame score from NSFW model */
+interface FrameAnalysisResult {
+  adult: number;
 }
 
 function extractMetadata(
@@ -41,46 +44,152 @@ async function extractFrames(
   duration: number,
   outputDir: string,
 ): Promise<string[]> {
-  const maxFrames = config.maxAnalysisFrames;
-  const interval = Math.max(
-    config.frameIntervalSeconds,
-    Math.floor(duration / maxFrames),
-  );
-
-  const timestamps: number[] = [];
-  for (
-    let t = 1;
-    t < duration && timestamps.length < maxFrames;
-    t += interval
-  ) {
-    timestamps.push(t);
-  }
-  if (timestamps.length === 0 && duration > 0) {
-    timestamps.push(Math.floor(duration / 2));
-  }
-
   fs.mkdirSync(outputDir, { recursive: true });
 
+  // --- 1. Denser regular-interval sampling ---
+  let interval: number;
+  if (duration <= 15) {
+    interval = 1;
+  } else if (duration <= 30) {
+    interval = 2;
+  } else if (duration <= 120) {
+    interval = 3;
+  } else if (duration <= 600) {
+    interval = 4;
+  } else if (duration <= 1800) {
+    interval = 6;
+  } else {
+    interval = 8;
+  }
+
+  const regularTimestamps: number[] = [];
+  for (let t = 0.5; t < duration; t += interval) {
+    regularTimestamps.push(parseFloat(t.toFixed(2)));
+  }
+  if (regularTimestamps.length === 0 && duration > 0) {
+    regularTimestamps.push(Math.floor(duration / 2));
+  }
+
+  // --- 2. Scene-change detection via ffmpeg ---
+  const sceneTimestamps = await detectSceneChanges(filePath, duration);
+
+  // --- 3. Merge & deduplicate (drop scene-change timestamps within 0.5 s of a regular one) ---
+  const allTimestamps = [...regularTimestamps];
+  for (const st of sceneTimestamps) {
+    const tooClose = allTimestamps.some((rt) => Math.abs(rt - st) < 0.5);
+    if (!tooClose) {
+      allTimestamps.push(st);
+    }
+  }
+  allTimestamps.sort((a, b) => a - b);
+
+  console.log(
+    `📸 Frame extraction: ${regularTimestamps.length} regular + ${sceneTimestamps.length} scene-change ` +
+      `→ ${allTimestamps.length} unique timestamps for ${duration}s video`,
+  );
+
+  // --- 4. Extract every frame (skip individual failures) ---
   const framePaths: string[] = [];
 
-  for (let i = 0; i < timestamps.length; i++) {
+  for (let i = 0; i < allTimestamps.length; i++) {
     const outputPath = path.join(outputDir, `frame_${i}.jpg`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(filePath)
+          .seekInput(allTimestamps[i])
+          .frames(1)
+          .outputOptions(["-q:v", "2"])
+          .output(outputPath)
+          .on("end", () => {
+            framePaths.push(outputPath);
+            resolve();
+          })
+          .on("error", reject)
+          .run();
+      });
+    } catch (err) {
+      console.warn(
+        `⚠️  Failed to extract frame at ${allTimestamps[i]}s, skipping:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  if (framePaths.length === 0) {
+    console.warn(
+      "⚠️  No frames could be extracted – falling back to single frame at t=0",
+    );
+    const fallbackPath = path.join(outputDir, "frame_fallback.jpg");
     await new Promise<void>((resolve, reject) => {
       ffmpeg(filePath)
-        .seekInput(timestamps[i])
         .frames(1)
         .outputOptions(["-q:v", "2"])
-        .output(outputPath)
+        .output(fallbackPath)
         .on("end", () => {
-          framePaths.push(outputPath);
+          framePaths.push(fallbackPath);
           resolve();
         })
-        .on("error", reject)
+        .on("error", (fbErr) => {
+          console.warn(
+            "⚠️  Fallback frame extraction also failed:",
+            fbErr.message,
+          );
+          resolve(); // continue with 0 frames
+        })
         .run();
     });
   }
 
   return framePaths;
+}
+
+/**
+ * Use ffmpeg's scene-change filter to find timestamps where significant
+ * visual transitions occur. These are the most likely places for brief
+ * violent / adult content that fixed-interval sampling would miss.
+ */
+function detectSceneChanges(
+  filePath: string,
+  duration: number,
+): Promise<number[]> {
+  // Sensitivity threshold: lower = more scenes detected.
+  // 0.3 is a good balance between catching real cuts and avoiding noise.
+  const threshold = 0.3;
+
+  return new Promise((resolve) => {
+    const timestamps: number[] = [];
+    let stderr = "";
+
+    const nullOutput = process.platform === "win32" ? "NUL" : "/dev/null";
+
+    const cmd = ffmpeg(filePath)
+      .videoFilters(`select='gt(scene,${threshold})',showinfo`)
+      .outputOptions(["-vsync", "vfr"])
+      .outputFormat("null")
+      .output(nullOutput);
+
+    cmd.on("stderr", (line: string) => {
+      stderr += line + "\n";
+      // showinfo filter prints lines like: pts_time:12.345
+      const match = line.match(/pts_time:\s*([\d.]+)/);
+      if (match) {
+        const t = parseFloat(match[1]);
+        if (t > 0 && t < duration) {
+          timestamps.push(parseFloat(t.toFixed(2)));
+        }
+      }
+    });
+
+    cmd.on("end", () => resolve(timestamps));
+
+    // If scene detection fails (e.g. very short clip), just return empty
+    cmd.on("error", (err: Error) => {
+      console.warn("Scene detection failed, continuing without:", err.message);
+      resolve([]);
+    });
+
+    cmd.run();
+  });
 }
 
 async function generateThumbnail(
@@ -101,16 +210,140 @@ async function generateThumbnail(
   });
 }
 
-async function analyseFrame(framePath: string): Promise<number> {
+/**
+ * Analyse a single frame for adult/NSFW content using Falconsai model.
+ */
+async function analyseFrameAdult(framePath: string): Promise<number> {
   const imageBuffer = fs.readFileSync(framePath);
-  const blob = new Blob([imageBuffer]);
+  const blob = new Blob([imageBuffer], { type: "image/jpeg" });
   const results = await hf.imageClassification({
     model: config.nsfwModel,
     data: blob,
+    provider: "hf-inference",
   });
 
   const nsfwResult = results.find((r) => r.label.toLowerCase() === "nsfw");
   return nsfwResult?.score ?? 0;
+}
+
+/**
+ * Analyse a single frame for adult/NSFW content.
+ */
+async function analyseFrame(framePath: string): Promise<FrameAnalysisResult> {
+  const adult = await analyseFrameAdult(framePath);
+  return { adult };
+}
+
+/**
+ * Extract audio track from video as a WAV file for speech analysis.
+ */
+function extractAudio(videoPath: string, outputPath: string): Promise<void> {
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  return new Promise((resolve, reject) => {
+    ffmpeg(videoPath)
+      .noVideo()
+      .audioChannels(1)
+      .audioFrequency(16000)
+      .outputFormat("wav")
+      .output(outputPath)
+      .on("end", () => resolve())
+      .on("error", (err) => {
+        // Some videos have no audio track or unsupported audio — that's fine
+        if (
+          err.message.includes("does not contain any stream") ||
+          err.message.includes("no audio") ||
+          err.message.includes("Conversion failed") ||
+          err.message.includes("Invalid data")
+        ) {
+          console.warn("⚠️  Audio extraction skipped:", err.message);
+          resolve();
+        } else {
+          reject(err);
+        }
+      })
+      .run();
+  });
+}
+
+// Common profanity / offensive words for language scoring
+const PROFANITY_LIST: string[] = [
+  "fuck",
+  "shit",
+  "ass",
+  "bitch",
+  "damn",
+  "hell",
+  "bastard",
+  "dick",
+  "piss",
+  "crap",
+  "cock",
+  "cunt",
+  "slut",
+  "whore",
+  "nigger",
+  "nigga",
+  "fag",
+  "faggot",
+  "retard",
+  "motherfucker",
+  "asshole",
+  "dumbass",
+  "bullshit",
+  "goddamn",
+  "wtf",
+  "stfu",
+  "lmao",
+  "porn",
+  "nude",
+  "naked",
+];
+
+/**
+ * Transcribe audio using Whisper and score for profanity.
+ * Returns a 0-1 score based on the density of profane words.
+ */
+async function analyseLanguage(audioPath: string): Promise<number> {
+  if (!fs.existsSync(audioPath)) return 0;
+
+  const audioBuffer = fs.readFileSync(audioPath);
+  if (audioBuffer.length < 1000) return 0; // too small = silence
+
+  const blob = new Blob([audioBuffer], { type: "audio/wav" });
+
+  try {
+    const result = await hf.automaticSpeechRecognition({
+      model: config.whisperModel,
+      data: blob,
+      provider: "hf-inference",
+    });
+
+    const transcript = (result.text || "").toLowerCase();
+    if (!transcript.trim()) return 0;
+
+    const words = transcript.split(/\s+/);
+    const totalWords = words.length;
+    if (totalWords === 0) return 0;
+
+    let profaneCount = 0;
+    for (const word of words) {
+      const cleaned = word.replace(/[^a-z]/g, "");
+      if (PROFANITY_LIST.some((p) => cleaned.includes(p))) {
+        profaneCount++;
+      }
+    }
+
+    // Score: ratio of profane words, capped at 1.0
+    // Multiply by 3 so even moderate profanity registers clearly
+    const rawScore = (profaneCount / totalWords) * 3;
+    return Math.min(parseFloat(rawScore.toFixed(4)), 1);
+  } catch (err) {
+    console.warn(
+      "⚠️  Language analysis failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return 0;
+  }
 }
 
 function cleanupFrames(framePaths: string[], framesDir: string): void {
@@ -191,95 +424,187 @@ export const processVideo = async (
       "thumbnails",
       `${videoId}.jpg`,
     );
-    await generateThumbnail(
-      video.filepath,
-      thumbnailPath,
-      Math.min(1, metadata.duration),
-    );
-    video.thumbnailPath = thumbnailPath;
+    try {
+      await generateThumbnail(
+        video.filepath,
+        thumbnailPath,
+        Math.min(1, metadata.duration),
+      );
+      video.thumbnailPath = thumbnailPath;
+    } catch (err) {
+      console.warn(
+        "⚠️  Thumbnail generation failed, continuing without:",
+        err instanceof Error ? err.message : err,
+      );
+    }
 
     await updateProgress(video, io, userId, 30, "Frame extraction complete");
 
-    // === Stage 3: Sensitivity Analysis (30 % → 70 %) ===
+    // === Stage 3: Sensitivity Analysis (30 % → 75 %) ===
     video.processingStatus = config.processingStatus.PROCESSING;
     await video.save();
 
+    // --- 3a. Frame-based analysis: Adult / NSFW (30 % → 60 %) ---
     await updateProgress(
       video,
       io,
       userId,
-      35,
-      "Starting NSFW sensitivity analysis (Falconsai/nsfw_image_detection)…",
+      32,
+      "Starting visual sensitivity analysis (NSFW)…",
     );
 
     const totalFrames = framePaths.length;
-    const frameScores: number[] = [];
+    const frameResults: FrameAnalysisResult[] = [];
+    const BATCH_SIZE = 4; // 1 API call per frame (NSFW)
 
-    for (let i = 0; i < totalFrames; i++) {
-      const stageProgress = 35 + Math.round(((i + 1) / totalFrames) * 30);
+    for (
+      let batchStart = 0;
+      batchStart < totalFrames;
+      batchStart += BATCH_SIZE
+    ) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, totalFrames);
+      const batch = framePaths.slice(batchStart, batchEnd);
+
+      const stageProgress = 32 + Math.round((batchEnd / totalFrames) * 28);
       await updateProgress(
         video,
         io,
         userId,
-        Math.min(stageProgress, 65),
-        `Analysing frame ${i + 1}/${totalFrames}…`,
+        Math.min(stageProgress, 58),
+        `Analysing frames ${batchStart + 1}–${batchEnd}/${totalFrames} (adult / NSFW)…`,
       );
 
-      try {
-        const score = await analyseFrame(framePaths[i]);
-        frameScores.push(score);
-      } catch (err) {
-        console.warn(
-          `⚠️  Failed to analyse frame ${i + 1}:`,
-          err instanceof Error ? err.message : err,
-        );
-        frameScores.push(0);
+      const batchResults = await Promise.allSettled(
+        batch.map((fp) => analyseFrame(fp)),
+      );
+
+      for (let j = 0; j < batchResults.length; j++) {
+        const result = batchResults[j];
+        if (result.status === "fulfilled") {
+          frameResults.push(result.value);
+        } else {
+          console.warn(
+            `⚠️  Failed to analyse frame ${batchStart + j + 1}:`,
+            result.reason instanceof Error
+              ? result.reason.message
+              : result.reason,
+          );
+          frameResults.push({ adult: 0 });
+        }
       }
     }
 
-    const maxNsfwScore = Math.max(...frameScores, 0);
-    const avgNsfwScore =
-      frameScores.length > 0
-        ? frameScores.reduce((a, b) => a + b, 0) / frameScores.length
-        : 0;
+    await updateProgress(video, io, userId, 60, "Visual analysis complete");
+
+    // --- 3b. Language / profanity analysis via Whisper (60 % → 75 %) ---
+    await updateProgress(
+      video,
+      io,
+      userId,
+      62,
+      "Extracting audio for language analysis (Whisper)…",
+    );
+
+    const audioPath = path.join(
+      config.uploadDir,
+      "frames",
+      videoId.toString(),
+      "audio.wav",
+    );
+    let languageScore = 0;
+
+    try {
+      await extractAudio(video.filepath, audioPath);
+      await updateProgress(
+        video,
+        io,
+        userId,
+        66,
+        "Transcribing audio for profanity detection…",
+      );
+      languageScore = await analyseLanguage(audioPath);
+
+      // Clean up audio file
+      if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+    } catch (err) {
+      console.warn(
+        "⚠️  Audio/language analysis failed, skipping:",
+        err instanceof Error ? err.message : err,
+      );
+    }
 
     await updateProgress(
       video,
       io,
       userId,
-      70,
-      "Sensitivity analysis complete",
+      75,
+      "All sensitivity analysis complete",
     );
 
-    // === Stage 4: Classification (70 % → 90 %) ===
-    await updateProgress(video, io, userId, 75, "Classifying content…");
+    // === Stage 4: Classification (75 % → 90 %) ===
+    await updateProgress(video, io, userId, 77, "Classifying content…");
 
-    // Map NSFW detection to existing sensitivity detail fields.
-    // Only "adult" is populated from the image classifier;
-    // violence / language / drug remain 0 (no model for those yet).
-    const sensitivityScores: SensitivityScores = {
-      violence: 0,
-      adult: parseFloat(maxNsfwScore.toFixed(4)),
-      language: 0,
-      drug: 0,
+    // Compute per-category scores from frame results
+    const adultScores = frameResults.map((r) => r.adult);
+
+    const computeCategoryScore = (
+      scores: number[],
+    ): { max: number; weighted: number } => {
+      if (scores.length === 0) return { max: 0, weighted: 0 };
+      const max = Math.max(...scores);
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const sorted = [...scores].sort((a, b) => b - a);
+      const top5 = sorted.slice(0, Math.min(5, sorted.length));
+      const top5Avg = top5.reduce((a, b) => a + b, 0) / top5.length;
+      // Weighted: 60% max + 25% top-5 avg + 15% overall avg
+      const weighted = max * 0.6 + top5Avg * 0.25 + avg * 0.15;
+      return { max, weighted };
     };
 
-    const overallScore = sensitivityScores.adult;
+    const adultStats = computeCategoryScore(adultScores);
+
+    const sensitivityScores: SensitivityScores = {
+      adult: parseFloat(adultStats.weighted.toFixed(4)),
+      language: parseFloat(languageScore.toFixed(4)),
+    };
+
+    // Overall score: highest category score drives the classification
+    const overallScore = parseFloat(
+      Math.max(sensitivityScores.adult, sensitivityScores.language).toFixed(4),
+    );
 
     video.sensitivityDetails = sensitivityScores;
-    video.sensitivityScore = parseFloat(overallScore.toFixed(4));
+    video.sensitivityScore = overallScore;
+
+    // Flag if ANY category is concerning
+    const adultFlagged =
+      adultStats.weighted > 0.4 ||
+      adultStats.max > 0.7 ||
+      adultScores.filter((s) => s > 0.4).length >= 2;
+    const languageFlagged = languageScore > 0.15;
+
     video.sensitivityClassification =
-      overallScore > 0.5
+      adultFlagged || languageFlagged
         ? config.sensitivityClass.FLAGGED
         : config.sensitivityClass.SAFE;
+
+    const flagReasons: string[] = [];
+    if (adultFlagged)
+      flagReasons.push(`Adult ${(adultStats.weighted * 100).toFixed(1)}%`);
+    if (languageFlagged)
+      flagReasons.push(`Language ${(languageScore * 100).toFixed(1)}%`);
+
+    const detailMsg =
+      flagReasons.length > 0
+        ? flagReasons.join(" · ")
+        : `All clear (max ${(overallScore * 100).toFixed(1)}%)`;
 
     await updateProgress(
       video,
       io,
       userId,
       85,
-      `Classified as: ${video.sensitivityClassification.toUpperCase()} ` +
-        `(NSFW max ${(maxNsfwScore * 100).toFixed(1)}% · avg ${(avgNsfwScore * 100).toFixed(1)}%)`,
+      `Classified as: ${video.sensitivityClassification.toUpperCase()} — ${detailMsg}`,
     );
     await updateProgress(video, io, userId, 90, "Classification complete");
 
@@ -305,8 +630,7 @@ export const processVideo = async (
     });
 
     console.log(
-      `✅ Video processed: ${video.title} → ${video.sensitivityClassification} ` +
-        `(NSFW max ${(maxNsfwScore * 100).toFixed(1)}%)`,
+      `✅ Video processed: ${video.title} → ${video.sensitivityClassification} — ${detailMsg}`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

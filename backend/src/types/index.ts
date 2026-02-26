@@ -6,7 +6,7 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: string;
-  organisation: string;
+  organisation: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -30,10 +30,8 @@ export interface IVideo extends Document {
   sensitivityClassification: string;
   sensitivityScore: number | null;
   sensitivityDetails: {
-    violence: number;
     adult: number;
     language: number;
-    drug: number;
   };
   uploadedBy: Types.ObjectId;
   organisation: string;

@@ -4,7 +4,7 @@ import config from "./config";
 import morgan from "morgan";
 import authRoutes from "./routes/auth.routes";
 import userRoutes from "./routes/user.routes";
-import videoRoutes from "./routes/video.route";
+import videoRoutes from "./routes/video.routes";
 
 const app = express();
 
@@ -23,8 +23,8 @@ if (config.nodeEnv === "development") {
 
 app.use(express.json());
 
-app.use("api/auth", authRoutes);
-app.use("api/users", userRoutes);
-app.use("api/videos", videoRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/videos", videoRoutes);
 
 export default app;

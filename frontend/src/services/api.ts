@@ -11,7 +11,7 @@ import type {
   User,
   UserListParams,
   UploadProgressHandler,
-} from "../type";
+} from "../types";
 
 const API_BASE: string = import.meta.env.VITE_API_URL || "/api";
 
@@ -20,7 +20,6 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem("token");
   if (token) {
@@ -28,7 +27,6 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
   return config;
 });
-
 
 api.interceptors.response.use(
   (response) => response,
@@ -40,10 +38,18 @@ api.interceptors.response.use(
         window.location.href = "/login";
       }
     }
+    if (error.response?.status === 403) {
+      // Role-based access denied from the backend
+      const message =
+        error.response?.data?.message ||
+        "You don't have permission to perform this action.";
+      // Import is avoided here; callers can inspect the error
+      error.isForbidden = true;
+      error.forbiddenMessage = message;
+    }
     return Promise.reject(error);
   },
 );
-
 
 export const authAPI = {
   register: (data: {
@@ -63,7 +69,6 @@ export const authAPI = {
   getMe: (): Promise<AxiosResponse<ApiResponse<{ user: User }>>> =>
     api.get("/auth/me"),
 };
-
 
 export const videoAPI = {
   list: (
@@ -102,7 +107,6 @@ export const videoAPI = {
     return `${API_BASE}/videos/${id}/stream?token=${token}`;
   },
 };
-
 
 export const userAPI = {
   list: (

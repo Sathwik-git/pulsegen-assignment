@@ -4,7 +4,6 @@ import { User } from "../models";
 import config from "../config";
 import { IUser } from "../types";
 
-
 const generateToken = (user: IUser): string => {
   return jwt.sign(
     { id: user._id, email: user.email, role: user.role },
@@ -21,7 +20,6 @@ export const register = async (
   try {
     const { name, email, password, organisation } = req.body;
 
-    
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       res.status(409).json({
@@ -31,15 +29,12 @@ export const register = async (
       return;
     }
 
-
     const user = await User.create({
       name,
       email,
       password,
-      organisation: organisation || "default",
-      role: config.roles.EDITOR,
+      organisation: organisation || null,
     });
-
 
     const token = generateToken(user);
 
@@ -62,7 +57,6 @@ export const register = async (
   }
 };
 
-
 export const login = async (
   req: Request,
   res: Response,
@@ -71,7 +65,6 @@ export const login = async (
   try {
     const { email, password } = req.body;
 
-   
     const user = await User.findOne({ email }).select("+password");
     if (!user) {
       res.status(401).json({
@@ -81,7 +74,6 @@ export const login = async (
       return;
     }
 
-   
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       res.status(401).json({
@@ -91,7 +83,6 @@ export const login = async (
       return;
     }
 
-    
     if (!user.isActive) {
       res.status(403).json({
         success: false,
@@ -100,7 +91,6 @@ export const login = async (
       return;
     }
 
-   
     const token = generateToken(user);
 
     res.json({
@@ -121,7 +111,6 @@ export const login = async (
     next(error);
   }
 };
-
 
 export const getMe = async (
   req: Request,

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { User } from "../models";
 import config from "../config";
-
+import { Server as SocketIOServer } from "socket.io";
 
 export const listUsers = async (
   req: Request,
@@ -17,11 +17,12 @@ export const listUsers = async (
     const filter: Record<string, unknown> = {};
     if (role) filter.role = role;
 
-    // Admin sees their own organisation users (multi-tenant)
-    if (req.user!.role !== config.roles.ADMIN) {
+    // Admin sees only their own organisation users (multi-tenant)
+    if (!req.user!.organisation) {
+      // No org — only return themselves
+      filter._id = req.user!._id;
+    } else {
       filter.organisation = req.user!.organisation;
-    } else if (organisation) {
-      filter.organisation = organisation;
     }
 
     const users = await User.find(filter)
@@ -49,7 +50,6 @@ export const listUsers = async (
   }
 };
 
-
 export const updateUserRole = async (
   req: Request,
   res: Response,
@@ -67,15 +67,42 @@ export const updateUserRole = async (
       return;
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
+    // Only allow updating users in the same organisation
+    if (!req.user!.organisation) {
+      res.status(403).json({
+        success: false,
+        message: "You must belong to an organisation to manage users.",
+      });
+      return;
+    }
+
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, organisation: req.user!.organisation },
       { role },
       { new: true, runValidators: true },
     ).select("-password");
 
     if (!user) {
-      res.status(404).json({ success: false, message: "User not found." });
+      res.status(404).json({
+        success: false,
+        message: "User not found in your organisation.",
+      });
       return;
+    }
+
+    // Notify the affected user in real-time via Socket.IO
+    const io: SocketIOServer = req.app.get("io");
+    if (io) {
+      io.to(`user:${user._id.toString()}`).emit("role:updated", {
+        role: user.role,
+        name: user.name,
+        email: user.email,
+        _id: user._id,
+        isActive: user.isActive,
+        organisation: user.organisation,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      });
     }
 
     res.json({
@@ -87,7 +114,6 @@ export const updateUserRole = async (
     next(error);
   }
 };
-
 
 export const toggleUserStatus = async (
   req: Request,
@@ -103,9 +129,24 @@ export const toggleUserStatus = async (
       return;
     }
 
-    const user = await User.findById(req.params.id);
+    // Only allow toggling users in the same organisation
+    if (!req.user!.organisation) {
+      res.status(403).json({
+        success: false,
+        message: "You must belong to an organisation to manage users.",
+      });
+      return;
+    }
+
+    const user = await User.findOne({
+      _id: req.params.id,
+      organisation: req.user!.organisation,
+    });
     if (!user) {
-      res.status(404).json({ success: false, message: "User not found." });
+      res.status(404).json({
+        success: false,
+        message: "User not found in your organisation.",
+      });
       return;
     }
 

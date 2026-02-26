@@ -1,23 +1,26 @@
 import multer from "multer";
 import path from "path";
+import fs from "fs";
 import { randomUUID } from "crypto";
 import { Request, Response, NextFunction } from "express";
 import config from "../config";
 
 
+const uploadPath = path.join(__dirname, "../../", config.uploadDir);
+if (!fs.existsSync(uploadPath)) {
+  fs.mkdirSync(uploadPath, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    const uploadPath = path.join(__dirname, "../../", config.uploadDir);
     cb(null, uploadPath);
   },
   filename: (_req, file, cb) => {
-   
     const ext = path.extname(file.originalname).toLowerCase();
     const uniqueName = `${randomUUID()}${ext}`;
     cb(null, uniqueName);
   },
 });
-
 
 const fileFilter = (
   _req: Express.Request,
@@ -36,7 +39,6 @@ const fileFilter = (
   }
 };
 
-// Multer instance
 const upload = multer({
   storage,
   fileFilter,
@@ -45,7 +47,6 @@ const upload = multer({
     files: 1,
   },
 });
-
 
 const videoUpload = (req: Request, res: Response, next: NextFunction): void => {
   const uploadSingle = upload.single("video");

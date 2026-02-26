@@ -20,7 +20,7 @@ initSocket(io);
 
 export async function StartServer() {
   await connectDB();
-  server.listen(config.port, () => {
+  server.listen(config.port,'0.0.0.0', () => {
     console.log(`server running on port ${config.port}`);
   });
 }

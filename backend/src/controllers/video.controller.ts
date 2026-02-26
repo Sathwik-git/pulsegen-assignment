@@ -62,19 +62,24 @@ export const listVideos = async (
     const sortOrder = (req.query.sortOrder as string) || "desc";
 
     const filter: Record<string, unknown> = {};
+    const userOrg = req.user!.organisation;
 
-    if (req.user!.role === config.roles.ADMIN) {
-      filter.organisation = req.user!.organisation;
+    if (!userOrg) {
+      // User without an organisation — only see public videos
+      filter.visibility = "public";
+    } else if (req.user!.role === config.roles.ADMIN) {
+      filter.organisation = userOrg;
     } else if (req.user!.role === config.roles.EDITOR) {
       filter.$or = [
         { uploadedBy: req.user!._id },
         {
-          organisation: req.user!.organisation,
+          organisation: userOrg,
           visibility: { $in: ["organisation", "public"] },
         },
       ];
     } else {
-      filter.organisation = req.user!.organisation;
+      // Viewer with an org — see org + public videos
+      filter.organisation = userOrg;
       filter.visibility = { $in: ["organisation", "public"] };
     }
 
@@ -302,6 +307,11 @@ export const reprocessVideo = async (
 };
 
 function canAccessVideo(user: IUser, video: IVideo): boolean {
+  // User without an organisation can only see public videos
+  if (!user.organisation) {
+    return video.visibility === "public";
+  }
+
   if (
     user.role === config.roles.ADMIN &&
     user.organisation === video.organisation
@@ -309,7 +319,12 @@ function canAccessVideo(user: IUser, video: IVideo): boolean {
     return true;
   }
 
-  if (video.uploadedBy.toString() === user._id.toString()) {
+  // Handle both populated and unpopulated uploadedBy
+  const uploadedById = (video.uploadedBy as { _id?: unknown })?._id
+    ? String((video.uploadedBy as { _id: unknown })._id)
+    : String(video.uploadedBy);
+
+  if (uploadedById === user._id.toString()) {
     return true;
   }
 

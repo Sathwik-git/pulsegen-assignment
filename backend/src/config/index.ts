@@ -22,6 +22,7 @@ const config = {
   ] as const,
   huggingFaceToken: process.env.HUGGINGFACE_API_TOKEN || "",
   nsfwModel: "Falconsai/nsfw_image_detection",
+  whisperModel: "openai/whisper-large-v3",
   maxAnalysisFrames: parseInt(process.env.MAX_ANALYSIS_FRAMES || "10", 10),
   frameIntervalSeconds: parseInt(process.env.FRAME_INTERVAL_SECONDS || "5", 10),
   corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",

@@ -76,10 +76,8 @@ const videoSchema = new Schema<IVideo>(
       default: null,
     },
     sensitivityDetails: {
-      violence: { type: Number, default: 0 },
       adult: { type: Number, default: 0 },
       language: { type: Number, default: 0 },
-      drug: { type: Number, default: 0 },
     },
 
     // Access & ownership

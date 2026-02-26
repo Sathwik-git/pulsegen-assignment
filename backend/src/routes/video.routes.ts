@@ -17,7 +17,6 @@ import { JwtPayload } from "../types";
 
 const router = Router();
 
-
 const streamAuth = async (
   req: Request,
   res: Response,
@@ -36,36 +35,28 @@ const streamAuth = async (
         next();
         return;
       }
-    } catch(e) {
-      console.log(e)
+    } catch (e) {
+      console.log(e);
     }
   }
-  
+
   auth(req, res, next);
 };
-
 
 router.get("/:id/stream", streamAuth, streamVideo);
 router.get("/:id/thumbnail", streamAuth, getThumbnail);
 
-
 router.use(auth);
-
 
 router.get("/", allRoles, listVideos);
 
-
 router.post("/upload", editorAndAbove, videoUpload, uploadVideo);
-
 
 router.get("/:id", allRoles, getVideo);
 
-
 router.put("/:id", editorAndAbove, updateVideo);
 
-
 router.delete("/:id", editorAndAbove, deleteVideo);
-
 
 router.post("/:id/reprocess", editorAndAbove, reprocessVideo);
 

@@ -641,11 +641,9 @@ Admins can access the **Admin** page to:
 
 ### Video Demonstration
 
-> 📹 A video demonstration of the platform's functionality is available at: _[Add video demo link here]_
+> 📹 **[Watch the Demo Video](https://youtu.be/MPi8enKkq8A)**
 
-### GitHub Repository
-
-> 🔗 Complete source code: _[Add GitHub repository link here]_
+[![PulseGen Demo](https://img.youtube.com/vi/MPi8enKkq8A/maxresdefault.jpg)](https://youtu.be/MPi8enKkq8A)
 
 ---
 

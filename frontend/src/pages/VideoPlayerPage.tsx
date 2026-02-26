@@ -207,8 +207,7 @@ export default function VideoPlayerPage() {
   const canReprocess = can("video:reprocess");
 
   // Build the token-authenticated stream URL
-  const token = localStorage.getItem("token");
-  const streamUrl = `/api/videos/${id}/stream?token=${encodeURIComponent(token || "")}`;
+  const streamUrl = videoAPI.streamUrl(id!);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">

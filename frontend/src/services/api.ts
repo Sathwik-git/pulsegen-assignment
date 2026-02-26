@@ -106,6 +106,11 @@ export const videoAPI = {
     const token = localStorage.getItem("token");
     return `${API_BASE}/videos/${id}/stream?token=${token}`;
   },
+
+  thumbnailUrl: (id: string): string => {
+    const token = localStorage.getItem("token");
+    return `${API_BASE}/videos/${id}/thumbnail?token=${token}`;
+  },
 };
 
 export const userAPI = {

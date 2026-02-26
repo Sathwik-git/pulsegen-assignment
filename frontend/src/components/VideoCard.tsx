@@ -17,6 +17,7 @@ import type {
   ProcessingStatus,
   SensitivityClassification,
 } from "../types";
+import { videoAPI } from "../services/api";
 
 interface StatusConfigEntry {
   icon: LucideIcon;
@@ -116,7 +117,14 @@ export default function VideoCard({ video }: VideoCardProps) {
       onClick={() => navigate(`/video/${video._id}`)}
     >
       {/* Thumbnail / Status area */}
-      <div className="relative h-40 bg-linear-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
+      <div
+        className="relative h-40 bg-linear-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden bg-cover bg-center"
+        style={
+          video.processingStatus === "completed" && video.thumbnailPath
+            ? { backgroundImage: `url(${videoAPI.thumbnailUrl(video._id)})` }
+            : undefined
+        }
+      >
         {video.processingStatus === "completed" ? (
           <div className="w-14 h-14 bg-white/90 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform shadow-md">
             <Play size={24} className="text-primary-600 ml-1" />

@@ -144,6 +144,31 @@ export const getVideo = async (
   }
 };
 
+export const getThumbnail = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) {
+      res.status(404).json({ success: false, message: "Video not found." });
+      return;
+    }
+
+    if (!video.thumbnailPath || !fs.existsSync(video.thumbnailPath)) {
+      res.status(404).json({ success: false, message: "Thumbnail not found." });
+      return;
+    }
+
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    fs.createReadStream(video.thumbnailPath).pipe(res);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const streamVideo = async (
   req: Request,
   res: Response,

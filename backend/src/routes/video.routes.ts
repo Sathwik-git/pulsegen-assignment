@@ -5,6 +5,7 @@ import {
   listVideos,
   getVideo,
   streamVideo,
+  getThumbnail,
   updateVideo,
   deleteVideo,
   reprocessVideo,
@@ -45,6 +46,7 @@ const streamAuth = async (
 
 
 router.get("/:id/stream", streamAuth, streamVideo);
+router.get("/:id/thumbnail", streamAuth, getThumbnail);
 
 
 router.use(auth);

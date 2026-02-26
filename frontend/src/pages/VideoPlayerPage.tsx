@@ -293,7 +293,7 @@ export default function VideoPlayerPage() {
                 controls
                 className="w-full h-full"
                 src={streamUrl}
-                poster={video.thumbnailPath || undefined}
+                poster={video._id ? videoAPI.thumbnailUrl(video._id) : undefined}
               >
                 Your browser does not support the video tag.
               </video>

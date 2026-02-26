@@ -38,7 +38,7 @@ export default function LoginPage() {
               <path d="M10 8l14 8-14 8V8z" fill="white" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">TalentPulse</h1>
+          <h1 className="text-3xl font-bold text-gray-900">PulseGen</h1>
           <p className="text-gray-500 mt-1">Sign in to your account</p>
         </div>
 
@@ -116,15 +116,15 @@ export default function LoginPage() {
             <div className="space-y-1 text-xs text-gray-500">
               <p>
                 <span className="font-medium">Admin:</span>{" "}
-                admin@talentpulse.com / admin123
+                sathwikbodakuntla041@gmail.com / Sathwik@123
               </p>
               <p>
                 <span className="font-medium">Editor:</span>{" "}
-                editor@talentpulse.com / editor123
+                sathwikbodakuntla@gmail.com / Sathwik@123
               </p>
               <p>
                 <span className="font-medium">Viewer:</span>{" "}
-                viewer@talentpulse.com / viewer123
+                Register a new account (default role)
               </p>
             </div>
           </div>
